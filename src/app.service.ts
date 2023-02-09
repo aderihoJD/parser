@@ -1,22 +1,15 @@
 import { Injectable } from "@nestjs/common";
 import axios, { AxiosResponse } from 'axios';
-import moment = require("moment");
+import * as moment from "moment";
 
-import { IGroupedResult, IInputData } from "./common/models";
+import { IGroupedResult, IInputData, IMatchInfo, ITournamentsByDateItem } from "./common/models";
 import { baseUrl, endpoints } from './common/constants';
+import { prepareGetAllTournamentsDataParams } from "./common/helper";
+import { generate } from "rxjs";
+import { generateExcel } from "./excel";
 
 @Injectable()
 export class AppService {
-
-
-    private readonly groupedResult: IGroupedResult[] = [];
-
-    async getAllFromDate(date: string): Promise<IGroupedResult[]> {
-
-        console.log(`will extract from date: ${date}`);
-
-        return;
-    }
 
     async getAllFromDateByInput(input: IInputData): Promise<IGroupedResult[]> {
 
@@ -24,65 +17,171 @@ export class AppService {
 
         const dateNow: moment.Moment = moment(new Date());
         const startDate: moment.Moment = moment([year, month - 1, day]);
-
         const iterationsNumber: number = dateNow.diff(startDate, 'days') + 1;
+        const arrayOfIterations: number[] = [];
 
-        // console.log(iterationsNumber);
-
-        let currentDate: moment.Moment = startDate;
+        for (let i = 0; i < iterationsNumber; i++) {
+            arrayOfIterations.push(i);
+        }
 
         var result: IGroupedResult[] = [];
 
+        let currentDate: moment.Moment = startDate;
 
-        for (let i = 0; i < iterationsNumber; i++) {
+        for (const item of arrayOfIterations) {
 
-            console.log(currentDate);
+            const used: number = process.memoryUsage().heapUsed / 1024 / 1024;
+            console.log(`The script uses approximately ${Math.round(used * 100) / 100} MB`);
 
-            // 2023/01/10 05:00
-            // 2023%2F01%2F10+05%3A00
+            const { url, params } = prepareGetAllTournamentsDataParams(currentDate);
 
+            console.log(`URl: ${url}`);
+            console.log(`Params: ${JSON.stringify(params)}`);
 
-            // 2023/01/10 20:59
-            // 2023%2F01%2F10+20%3A59
-
-            const params: any = {
-                page: 1,
-                dateFrom: `${currentDate.format().substr(0, 4)}/${currentDate.format().substr(5, 2)}/${currentDate.format().substr(8, 2)} 05:00`,
-                dateTo: `${currentDate.format().substr(0, 4)}/${currentDate.format().substr(5, 2)}/${currentDate.format().substr(8, 2)} 20:59`,
-            };
-
-            const response: AxiosResponse<{ totalPages: number, tournaments: any[] }> = await axios.get(`${baseUrl}${endpoints.tournamentsByDates}`, {
+            const response: AxiosResponse<{ totalPages: number, tournaments: ITournamentsByDateItem[] }> = await axios.get(url, {
                 params
             });
 
-            const preparedRequests: any[] = []; 
+            const preparedRequests: any[] = [];
 
-            for (let j = 0; j < response.data.tournaments.length; j++) {
+            response.data.tournaments.forEach((tournament: ITournamentsByDateItem) => {
+                const url: string = `${baseUrl}${endpoints.tournamentsByDates}/${tournament.id}/matches`;
+                // console.log(url);
+                preparedRequests.push(
+                    axios.get(url));
+            });
 
-                // preparedRequests.push(new Promise())
 
-                const matchesResponse: AxiosResponse = await axios.get(`${baseUrl}${endpoints.tournamentsByDates}/${response.data.tournaments[i].id}/matches`);
-                
-                matchesResponse.data.forEach((item) => {
-                    result.push({
-                        date: item.date,
-                        firstParticipant: item.participant1.nickname,
-                        secondParticipant: item.participant2.nickname,
-                        firstScore: item.participant1.score,
-                        secondScore: item.participant2.score,
-                    });
-                });
+            const additionalPages: number[] = [];
 
-                const used: number = process.memoryUsage().heapUsed / 1024 / 1024;
-                console.log(`The script uses approximately ${Math.round(used * 100) / 100} MB`);
+            if (response.data.totalPages > 1) {
+                for (let i = 1; i < response.data.totalPages; i++) {
+                    additionalPages.push(i + 1);
+                }
             }
 
-            // const allResults: any[] = 
+            if (additionalPages.length) {
+                for (const page of additionalPages) {
+                    const { url, params } = prepareGetAllTournamentsDataParams(currentDate, page);
+
+                    console.log(`URl: ${url}`);
+                    console.log(`Params: ${JSON.stringify(params)}`);
+
+                    const additionalPageResponse: AxiosResponse<{ totalPages: number, tournaments: ITournamentsByDateItem[] }> = await axios.get(url, {
+                        params
+                    });
+
+                    additionalPageResponse.data.tournaments.forEach((tournament: ITournamentsByDateItem) => {
+                        const url: string = `${baseUrl}${endpoints.tournamentsByDates}/${tournament.id}/matches`;
+                        preparedRequests.push(
+                            axios.get(url));
+                    });
+
+
+                }
+            }
+
+            const tournamentsByDayResult: PromiseSettledResult<{ data: IMatchInfo[] }>[] = await Promise.allSettled(preparedRequests);
+
+            // console.log(tournamentsByDayResult);
+
+            tournamentsByDayResult.forEach((tournamentsByDayResultItem: PromiseSettledResult<{ data: IMatchInfo[] }>) => {
+
+                if (tournamentsByDayResultItem.status === 'fulfilled') {
+                    tournamentsByDayResultItem.value.data.forEach((match: IMatchInfo) => {
+                        result.push({
+                            date: match.date,
+                            firstParticipant: match.participant1.nickname,
+                            secondParticipant: match.participant2.nickname,
+                            firstTeam: match.participant1.team.token_international,
+                            secondTeam: match.participant2.team.token_international,
+                            firstScore: match.participant1.score,
+                            secondScore: match.participant2.score,
+                        });
+                    });
+                } else {
+                    // handle it later
+                }
+            });
+
+            const usedAfter: number = process.memoryUsage().heapUsed / 1024 / 1024;
+            console.log(`Added to array. The script uses approximately ${Math.round(usedAfter * 100) / 100} MB`);
+
 
             currentDate = currentDate.add(1, 'days');
         }
 
-        return result;
+
+        // 2023/01/10 05:00
+        // 2023%2F01%2F10+05%3A00
+
+
+        // 2023/01/10 20:59
+        // 2023%2F01%2F10+20%3A59
+
+        //NEED TO EXTRACT EACH DAY TOURNAMENTS
+
+
+
+
+
+
+
+
+
+        // for (let j = 0; j < response.data.tournaments.length; j++) {
+
+        // preparedRequests.push(new Promise())
+
+        // NEED TO EXTRACT DATA FOE EACH TOURNAMENT
+
+        // preparedRequests.push(
+        //     axios.get(`${baseUrl}${endpoints.tournamentsByDates}/${response.data.tournaments[iterationValue].id}/matches`));
+
+        // const matchesResponse: AxiosResponse = await axios.get(`${baseUrl}${endpoints.tournamentsByDates}/${response.data.tournaments[i].id}/matches`);
+
+        // matchesResponse.data.forEach((item) => {
+        //     result.push({
+        //         date: item.date,
+        //         firstParticipant: item.participant1.nickname,
+        //         secondParticipant: item.participant2.nickname,
+        //         firstScore: item.participant1.score,
+        //         secondScore: item.participant2.score,
+        //     });
+        // });
+
+        // const used: number = process.memoryUsage().heapUsed / 1024 / 1024;
+        // console.log(`The script uses approximately ${Math.round(used * 100) / 100} MB`);
+        // }
+
+        // console.log(`Prepared requests for each tournament for: ${currentDate}`);
+
+        // const used: number = process.memoryUsage().heapUsed / 1024 / 1024;
+        // console.log(`The script uses approximately ${Math.round(used * 100) / 100} MB`);
+
+        // const tournamentsByDayResult: any[] = await Promise.allSettled(preparedRequests);
+
+        // console.log(`Extracted data for each tournament for: ${currentDate}`);
+
+        // tournamentsByDayResult.forEach((tournamentResults: any) => {
+
+        //         tournamentResults.value.data.forEach((item) => {
+        //             result.push({
+        //                 date: item.date,
+        //                 firstParticipant: item.participant1.nickname,
+        //                 secondParticipant: item.participant2.nickname,
+        //                 firstScore: item.participant1.score,
+        //                 secondScore: item.participant2.score,
+        //             });
+        //         });
+        // });
+
+        // const usedAfter: number = process.memoryUsage().heapUsed / 1024 / 1024;
+        // console.log(`Added to array. The script uses approximately ${Math.round(usedAfter * 100) / 100} MB`);
+
+        await generateExcel(result);
+
+        return;
     }
 
 
