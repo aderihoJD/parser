@@ -97,6 +97,7 @@ export class AppService {
                             secondTeam: match.participant2.team.token_international,
                             firstScore: match.participant1.score,
                             secondScore: match.participant2.score,
+                            tournamentName: match.tournament.token_international,
                         });
                     });
                 } else {

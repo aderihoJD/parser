@@ -17,6 +17,7 @@ export const generateExcel = async (data: IGroupedResult[]): Promise<void> => {
         { key: 'secondTeam', header: 'Second player team' },
         { key: 'firstScore', header: 'First player score' },
         { key: 'secondScore', header: 'Second player score' },
+        { key: 'tournamentName', header: 'Tournament' },
     ];
 
     data.forEach((item: IGroupedResult) => {

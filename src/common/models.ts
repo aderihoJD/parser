@@ -6,6 +6,7 @@ export interface IGroupedResult {
     secondTeam: string;
     firstScore: number;
     secondScore: number;
+    tournamentName: string;
 }
 
 export interface IInputData {
