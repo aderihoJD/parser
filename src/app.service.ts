@@ -5,15 +5,14 @@ import * as moment from "moment";
 import { IGroupedResult, IInputData, IMatchInfo, ITournamentsByDateItem } from "./common/models";
 import { baseUrl, endpoints } from './common/constants';
 import { prepareGetAllTournamentsDataParams } from "./common/helper";
-import { generate } from "rxjs";
 import { generateExcel } from "./excel";
 
 @Injectable()
 export class AppService {
 
-    async getAllFromDateByInput(input: IInputData): Promise<IGroupedResult[]> {
+    async getAllFromDateByInput(input: IInputData): Promise<void> {
 
-        const { year, month, day } = input;
+        const { year, month, day, tournamentNames } = input;
 
         const dateNow: moment.Moment = moment(new Date());
         const startDate: moment.Moment = moment([year, month - 1, day]);
@@ -180,9 +179,7 @@ export class AppService {
         // const usedAfter: number = process.memoryUsage().heapUsed / 1024 / 1024;
         // console.log(`Added to array. The script uses approximately ${Math.round(usedAfter * 100) / 100} MB`);
 
-        await generateExcel(result);
-
-        return;
+        await generateExcel(result, tournamentNames);
     }
 
 

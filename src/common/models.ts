@@ -13,6 +13,7 @@ export interface IInputData {
     year: number;
     month: number;
     day: number;
+    tournamentNames: string[];
 }
 
 export interface ITournamentsByDateItem {
